@@ -26,6 +26,11 @@ address space or the lower 2 GiB and highest 2 GiB of the RV64 address space
 By using the `lui` and load / store instructions, when referring to an object, or
 `addi`, when calculating an address literal, for example,
 a 32-bit address literal can be produced.
+For the ILP32 ABI on RV64* ISA, the medlow allows the code to address lower 2GiB
+of the RV64 address space (`0x0` ~ `0x000000007FFFFFFF`).
+
+NOTE: Limiting the address space to lower 2GiB does not pose any issues with sign
+extending addresses into the upper 32 bits of a 64-bit register.
 
 The following instructions show how to load a value, store a value, or calculate
 an address in the `medlow` code model.
