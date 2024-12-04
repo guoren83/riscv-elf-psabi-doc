@@ -22,9 +22,10 @@ in the current code model.
 
 The medium low code model, or `medlow`, allows the code to address the whole RV32
 address space or the lower 2 GiB and highest 2 GiB of the RV64 address space
-(`0xFFFFFFFF7FFFF800` ~ `0xFFFFFFFFFFFFFFFF` and `0x0` ~ `0x000000007FFFF7FF`).
+(LP64*: `0xFFFFFFFF7FFFF800` ~ `0xFFFFFFFFFFFFFFFF` and `0x0` ~ `0x000000007FFFF7FF`)
+(RV64ILP32*: `0xFFFFFFFF80000000` ~ `0xFFFFFFFFFFFFFFFF` and `0x0` ~ `0x000000007FFFFFFF`).
 By using the `lui` and load / store instructions, when referring to an object, or
-`addi`, when calculating an address literal, for example,
+`addi` (LP64* & ILP32* ABIs), `addiw` (RV64ILP32* ABIs), when calculating an address literal, for example,
 a 32-bit address literal can be produced.
 
 The following instructions show how to load a value, store a value, or calculate
@@ -42,10 +43,10 @@ an address in the `medlow` code model.
 
     # Calculate address
     lui  a0, %hi(symbol)
-    addi a0, a0, %lo(symbol)
+    addi[w] a0, a0, %lo(symbol)
 ----
 
-NOTE: The ranges on RV64 are not `0x0` ~ `0x000000007FFFFFFF` and
+NOTE: The ranges on RV64 with LP64* ABIs are not `0x0` ~ `0x000000007FFFFFFF` and
 `0xFFFFFFFF80000000` ~ `0xFFFFFFFFFFFFFFFF` due to RISC-V's sign-extension of
 immediates; the following code fragments show where the ranges come from:
 [,asm]
@@ -59,12 +60,26 @@ lui a0, 0x80000 # a0 = 0xffffffff80000000
 addi a0, a0, -0x800 # a0 = a0 + -2048 = 0xFFFFFFFF7FFFF800
 ----
 
+NOTE: The ranges on RV64 with RV64ILP32* ABIs are `0x0` ~ `0x000000007FFFFFFF` and
+`0xFFFFFFFF80000000` ~ `0xFFFFFFFFFFFFFFFF` by changing addi to addiw; the following
+code fragments show where the ranges come from:
+[,asm]
+----
+# Largest postive number:
+lui a0, 0x7ffff # a0 = 0x7ffff000
+addi a0, 0x7ff # a0 = a0 + 2047 = 0x000000007FFFF7FF
+
+# Smallest negative number:
+lui a0, 0x80000 # a0 = 0xffffffff80000000
+addiw a0, a0, -0x800 # a0 = a0 + -2048 = 0x000000007FFFF800
+----
+
 === Medium any code model
 
 The medium any code model, or `medany`, allows the code to address the range
 between -2 GiB and +2 GiB from its position.  By using `auipc`
 and load / store instructions, when referring to an object, or
-`addi`, when calculating an address literal, for example,
+`addi` (LP64* & ILP32* ABIs), `addiw` (RV64ILP32* ABIs), when calculating an address literal, for example,
 a signed 32-bit offset, relative to the value of the `pc` register,
 can be produced.
 
@@ -94,7 +109,7 @@ an address in the medany code model.
 
          # Calculate address
 .Ltmp2:  auipc a0, %pcrel_hi(symbol)
-         addi  a0, a0, %pcrel_lo(.Ltmp2)
+         addi[w] a0, a0, %pcrel_lo(.Ltmp2)
 ----
 
 NOTE: Although the generated code is technically position independent, it's not
@@ -118,7 +133,7 @@ This model is similar to the medium any code model, but uses the
 
          # Calculate address of a local symbol
 .Ltmp2:  auipc a0, %pcrel_hi(symbol)
-         addi  a0, a0, %pcrel_lo(.Ltmp2)
+         addi[w]  a0, a0, %pcrel_lo(.Ltmp2)
 
          # Calculate address of non-local symbol
 .Ltmp3:  auipc  a0, %got_pcrel_hi(symbol)
@@ -685,8 +700,10 @@ The following assembly and relocations show loading an absolute address:
 [,asm]
 ----
     lui  a0, %hi(symbol)     # R_RISCV_HI20 (symbol)
-    addi a0, a0, %lo(symbol) # R_RISCV_LO12_I (symbol)
+    addi[w] a0, a0, %lo(symbol) # R_RISCV_LO12_I (symbol)
 ----
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 A symbol can be loaded in multiple fragments using different addends, where
 multiple instructions associated with `R_RISCV_LO12_I`/`R_RISCV_LO12_S` share a
@@ -738,11 +755,13 @@ in the PLT occupies two 16 byte entries:
     sub    t1, t1, t3               # shifted .got.plt offset + hdr size + 12
     l[w|d] t3, %pcrel_lo(1b)(t2)    # _dl_runtime_resolve
     addi   t1, t1, -(hdr size + 12) # shifted .got.plt offset
-    addi   t0, t2, %pcrel_lo(1b)    # &.got.plt
+    addi[w] t0, t2, %pcrel_lo(1b)    # &.got.plt
     srli   t1, t1, log2(16/PTRSIZE) # .got.plt offset
     l[w|d] t0, PTRSIZE(t0)          # link map
     jr     t3
 ----
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 Subsequent function entry stubs in the PLT take up 16 bytes and load a
 function pointer from the GOT. On the first call to a function, the
@@ -972,7 +991,7 @@ relocations are in comments.
 [,asm]
 ----
     lui  a5,%tprel_hi(i)           # R_RISCV_TPREL_HI20 (symbol)
-    add  a5,a5,tp,%tprel_add(i)    # R_RISCV_TPREL_ADD (symbol)
+    add[w] a5,a5,tp,%tprel_add(i)    # R_RISCV_TPREL_ADD (symbol)
     lw   t0,%tprel_lo(i)(a5)       # R_RISCV_TPREL_LO12_I (symbol)
     addi t0,t0,1
     sw   t0,%tprel_lo(i)(a5)       # R_RISCV_TPREL_LO12_S (symbol)
@@ -980,6 +999,8 @@ relocations are in comments.
 
 The `%tprel_add` assembler function does not return a value and is used purely
 to associate the `R_RISCV_TPREL_ADD` relocation with the `add` instruction.
+
+NOTE: `add` is for ILP32* and LP64* ABIs. `addw` is for RV64ILP32* ABIs.
 
 ==== Initial Exec
 
@@ -998,11 +1019,13 @@ Example assembler load and store of a thread local variable `i` using the
 [,asm]
 ----
     la.tls.ie a5,i
-    add  a5,a5,tp
+    add[w] a5,a5,tp
     lw   t0,0(a5)
     addi t0,t0,1
     sw   t0,0(a5)
 ----
+
+NOTE: `add` is for ILP32* and LP64* ABIs. `addw` is for RV64ILP32* ABIs.
 
 The assembler pseudoinstruction:
 
@@ -1057,10 +1080,12 @@ expands to the following assembly instructions and relocations:
 ----
 label:
     auipc a0,0                    # R_RISCV_TLS_GD_HI20 (symbol)
-    addi  a0,a0,0                 # R_RISCV_PCREL_LO12_I (label)
+    addi[w] a0,a0,0               # R_RISCV_PCREL_LO12_I (label)
 ----
 
 In the Global Dynamic model, the runtime library provides the `__tls_get_addr` function:
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 [,c]
 ----
@@ -1113,7 +1138,7 @@ assembler functions. The emitted relocations are in the comments.
 label:
 	auipc tX, %tlsdesc_hi(symbol)         // R_RISCV_TLSDESC_HI20 (symbol)
 	lw    tY, tX, %tlsdesc_load_lo(label) // R_RISCV_TLSDESC_LOAD_LO12 (label)
-	addi  a0, tX, %tlsdesc_add_lo(label)  // R_RISCV_TLSDESC_ADD_LO12 (label)
+	addi[w] a0, tX, %tlsdesc_add_lo(label)// R_RISCV_TLSDESC_ADD_LO12 (label)
 	jalr  t0, tY, %tlsdesc_call(label)    // R_RISCV_TLSDESC_CALL (label)
 ----
 
@@ -1126,6 +1151,8 @@ The linker can use the relocations to recognize the sequence and to perform rela
 
 - Instructions outside the sequence that do not clobber the registers used within the sequence may be inserted in-between the instructions of the sequence (known as instruction scheduling).
 - Instructions in the sequence with no data dependency may be reordered. In the preceding example, the only instructions that can be reordered are `lw` and `addi`.
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 === Sections
 
@@ -1765,7 +1792,7 @@ NOTE: Tag_RISCV_x3_reg_usage is treated as 0 if it is not present.
   removed if the symbol is absolute.
 
   - The instruction or instructions associated with `R_RISCV_PCREL_LO12_I`
-  can be rewritten to either `c.li` or `addi` to materialize the symbol's
+  can be rewritten to either `c.li` or `addi` or `addiw` to materialize the symbol's
   address directly in a register.
 
   - If this relaxation eliminates all references to the symbol's GOT slot,
@@ -1795,16 +1822,18 @@ to use `c.li`):
 
 [,asm]
 ----
-    addi    tY, zero, <symbol-value>
+    addi[w]  tY, zero, <symbol-value>
 ----
 
 Relaxation result (relative symbol):
 [,asm]
 ----
     auipc   tX, <hi>
-    addi    tY, tX, <lo>
+    addi[w] tY, tX, <lo>
 ----
 --
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 ==== Zero-page Relaxation
 
@@ -1901,7 +1930,7 @@ Relaxation candidate:
 [,asm]
 ----
     lui t0, 0       # R_RISCV_TPREL_HI20 (symbol), R_RISCV_RELAX
-    add t0, t0, tp  # R_RISCV_TPREL_ADD (symbol), R_RISCV_RELAX
+    add[w] t0, t0, tp  # R_RISCV_TPREL_ADD (symbol), R_RISCV_RELAX
     lw t1, 0(t0)    # R_RISCV_TPREL_LO12_I (symbol), R_RISCV_RELAX
 ----
 Relaxation result:
@@ -1910,6 +1939,8 @@ Relaxation result:
     lw t1, <tp-offset-for-symbol>(tp)
 ----
 --
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 ==== TLS Descriptors -> Initial Exec Relaxation
 
@@ -1935,7 +1966,7 @@ Relaxation candidate (`tX` and `tY` can be any combination of two general purpos
 label:
 	auipc tX, <hi>      // R_RISCV_TLSDESC_HI20 (symbol), R_RISCV_RELAX
 	lw    tY, tX, <lo>  // R_RISCV_TLSDESC_LOAD_LO12 (label)
-	addi  a0, tX, <lo>  // R_RISCV_TLSDESC_ADD_LO12 (label)
+	addi[w] a0, tX, <lo>// R_RISCV_TLSDESC_ADD_LO12 (label)
 	jalr  t0, tY        // R_RISCV_TLSDESC_CALL (label)
 ----
 
@@ -1947,6 +1978,8 @@ Relaxation result:
 	{ld,lw} a0, <pcrel-got-offset-for-symbol-lo>(a0)
 ----
 --
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 ==== TLS Descriptors -> Local Exec Relaxation
 
@@ -1976,7 +2009,7 @@ Relaxation candidate (`tX` and `tY` can be any combination of two general purpos
 label:
 	auipc tX, <hi>      // R_RISCV_TLSDESC_HI20 (symbol), R_RISCV_RELAX
 	lw    tY, tX, <lo>  // R_RISCV_TLSDESC_LOAD_LO12 (label)
-	addi  a0, tX, <lo>  // R_RISCV_TLSDESC_ADD_LO12 (label)
+	addi[w] a0, tX, <lo>// R_RISCV_TLSDESC_ADD_LO12 (label)
 	jalr  t0, tY        // R_RISCV_TLSDESC_CALL (label)
 ----
 
@@ -1985,16 +2018,18 @@ Relaxation result (long form):
 [,asm]
 ----
 	lui a0, <tp-offset-for-symbol-hi>
-	addi a0, a0, <tp-offset-for-symbol-lo>
+	addi[w] a0, a0, <tp-offset-for-symbol-lo>
 ----
 
 Relaxation result (short form):
 
 [,asm]
 ----
-	addi a0, zero, <tp-offset-for-symbol>
+	addi[w] a0, zero, <tp-offset-for-symbol>
 ----
 --
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 ==== Table Jump Relaxation
 
@@ -2067,9 +2102,11 @@ instructions. It is recommended to initialize `jvt` CSR immediately after
 ----
     # Recommended way to initialize the jvt CSR.
 1:  auipc a0, %pcrel_hi(__jvt_base$)
-    addi  a0, a0, %pcrel_lo(1b)
+    addi[w] a0, a0, %pcrel_lo(1b)
     csrw  jvt, a0
 ----
+
+NOTE: `addi` is for ILP32* and LP64* ABIs. `addiw` is for RV64ILP32* ABIs.
 
 [bibliography]
 == References
